@@ -1,0 +1,17 @@
+{
+  "name": "4884-api",
+  "version": "1.0.0",
+  "description": "API de cursos, polos e pré-requisitos de 2ª graduação, consumida via n8n",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "csv-parse": "^5.6.0",
+    "express": "^4.21.2"
+  }
+}
