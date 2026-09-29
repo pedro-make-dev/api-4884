@@ -92,14 +92,6 @@ function buscarPorCidade(polos, { uf, cidade, cep, megaPolo, limite } = {}) {
   };
 }
 
-// Coordenada mais fina do polo: CEP do endereço; sem ela, o centro do município.
-async function coordenadasDoPolo(polo, geocoder) {
-  if (!polo.geo) return null;
-  const doCep = await geocoder.localizarCep(polo.cep);
-  if (doCep && haversineKm(polo.geo, doCep) <= geocoder.RAIO_MAX_KM) return doCep;
-  return polo.geo;
-}
-
 // Com bairro: os polos da cidade vêm ordenados pela distância até o bairro; sem
 // polo na cidade, o fallback mede a partir do bairro. Se o bairro não for
 // localizado, a resposta é a mesma da busca sem bairro, com um aviso.
@@ -135,11 +127,22 @@ async function refinarPorBairro(resultado, polos, query, geocoder) {
 
   const comDistancia = await Promise.all(
     resultado.data.map(async (p) => {
-      const coords = await coordenadasDoPolo(p, geocoder);
+      const coords = await geocoder.localizarPolo(p);
       return coords ? { ...p, distanciaKm: kmComUmaCasa(haversineKm(origem, coords)) } : p;
     })
   );
-  // Polos sem coordenada (geo: null) vão para o fim.
+  if (!comDistancia.some((p) => p.distanciaKm !== undefined)) {
+    return {
+      data: resultado.data,
+      meta: {
+        ...resultado.meta,
+        bairroBuscado,
+        bairroLocalizado: true,
+        aviso: 'Não foi possível localizar o endereço dos polos. Polos listados sem ordenar por distância do bairro.',
+      },
+    };
+  }
+  // Polo sem endereço localizado fica sem distância, no fim da lista.
   comDistancia.sort((a, b) => (a.distanciaKm ?? Infinity) - (b.distanciaKm ?? Infinity));
   return {
     data: comDistancia,

@@ -11,6 +11,13 @@ const RAIO_MAX_KM = 40;
 // Política de uso do Nominatim: no máximo 1 requisição por segundo.
 const INTERVALO_NOMINATIM_MS = 1100;
 
+// Coordenadas dos polos por CEP, geradas por scripts/geocodificar-polos.js.
+// A AwesomeAPI fica atrás do Cloudflare, que bloqueia servidores em nuvem
+// como o Render; por isso os polos já conhecidos não dependem dela em produção.
+const POLOS_CONHECIDOS = new Map(
+  Object.entries(require('../data/polosCoordenadas.json')).map(([cep, [lat, lon]]) => [cep, { lat, lon }])
+);
+
 const cacheCep = new Map();
 const cacheBairro = new Map();
 
@@ -44,8 +51,8 @@ function maisProximoDoCentro(resultados, municipio) {
     .map(({ lat, lon }) => ({ lat, lon }))[0] || null;
 }
 
-// Bairro do lead → { lat, lon }. Primeiro busca "bairro, cidade, UF"; se o OSM
-// não ligar o bairro à cidade (ex.: regiões administrativas do DF), busca só o
+// Bairro → { lat, lon }. Primeiro busca "bairro, cidade, UF"; se o OSM não
+// ligar o bairro à cidade (ex.: regiões administrativas do DF), busca só o
 // nome do bairro numa caixa em volta do município.
 async function localizarBairro(bairro, municipio) {
   const chave = `${bairro}|${municipio.nome}|${municipio.uf}`.toLowerCase();
@@ -72,10 +79,15 @@ async function localizarBairro(bairro, municipio) {
   return coords;
 }
 
-// CEP do polo → { lat, lon } do logradouro.
+function normalizarCep(cep) {
+  const digitos = String(cep || '').replace(/\D/g, '');
+  return digitos ? digitos.padStart(8, '0') : '';
+}
+
+// CEP → { lat, lon } do logradouro, pela AwesomeAPI.
 async function localizarCep(cep) {
-  const digitos = String(cep || '').replace(/\D/g, '').padStart(8, '0');
-  if (digitos === '00000000') return null;
+  const digitos = normalizarCep(cep);
+  if (!digitos) return null;
   if (cacheCep.has(digitos)) return cacheCep.get(digitos);
 
   let coords = null;
@@ -95,4 +107,25 @@ async function localizarCep(cep) {
   return coords;
 }
 
-module.exports = { localizarBairro, localizarCep, RAIO_MAX_KM };
+// Bairro do endereço da planilha: o trecho depois do último " - ".
+function bairroDoEndereco(endereco) {
+  const partes = String(endereco || '').split(/\s[-–]\s/);
+  return partes.length > 1 ? partes.at(-1).trim() : '';
+}
+
+// Polo → { lat, lon }: arquivo gerado, depois CEP online, depois o bairro do
+// endereço no Nominatim. null se nada der certo (o polo fica sem distância).
+async function localizarPolo(polo) {
+  if (!polo.geo) return null;
+  const cep = normalizarCep(polo.cep);
+  if (POLOS_CONHECIDOS.has(cep)) return POLOS_CONHECIDOS.get(cep);
+
+  const municipio = { nome: polo.geo.municipio, uf: polo.geo.uf, lat: polo.geo.lat, lon: polo.geo.lon };
+  const doCep = await localizarCep(cep);
+  if (doCep && haversineKm(municipio, doCep) <= RAIO_MAX_KM) return doCep;
+
+  const bairro = bairroDoEndereco(polo.endereco);
+  return bairro ? localizarBairro(bairro, municipio) : null;
+}
+
+module.exports = { localizarBairro, localizarCep, localizarPolo, normalizarCep, bairroDoEndereco, RAIO_MAX_KM };

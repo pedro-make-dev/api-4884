@@ -5,7 +5,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "test": "node --test"
+    "test": "node --test",
+    "geocodificar-polos": "node scripts/geocodificar-polos.js"
   },
   "engines": {
     "node": ">=20"

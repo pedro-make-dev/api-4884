@@ -104,17 +104,16 @@ test('cidade inexistente: não faz fallback e avisa', async () => {
 // ---- bairro ----
 // Geocoder falso: nada de rede nos testes.
 function geocoderFalso({ bairros = {}, ceps = {} } = {}) {
-  const chamadas = { bairro: [], cep: [] };
+  const chamadas = { bairro: [], polo: [] };
   return {
     chamadas,
-    RAIO_MAX_KM: 40,
     async localizarBairro(nome, municipio) {
       chamadas.bairro.push({ nome, municipio: municipio.nome });
       return bairros[nome.toLowerCase()] || null;
     },
-    async localizarCep(cep) {
-      chamadas.cep.push(cep);
-      return ceps[cep] || null;
+    async localizarPolo(polo) {
+      chamadas.polo.push(polo.cep);
+      return ceps[polo.cep] || null;
     },
   };
 }
@@ -155,28 +154,28 @@ test('bairro: polos da cidade ordenados pela distância até o bairro', async ()
   assert.deepEqual(kms, [...kms].sort((a, b) => a - b));
 });
 
-test('bairro: polo sem CEP localizado usa o centro do município', async () => {
+test('bairro: polo sem endereço localizado fica sem distância, no fim da lista', async () => {
   const { data } = await buscarPolos(
     POLOS_SALVADOR,
     { cidade: 'salvador', uf: 'BA', bairro: 'Itapua' },
     geocoderFalso(GEO_SALVADOR)
   );
-  const semCep = data.find((p) => p.cidade === 'SALVADOR (SEM CEP)');
-  assert.equal(typeof semCep.distanciaKm, 'number');
+  assert.equal(data.at(-1).cidade, 'SALVADOR (SEM CEP)');
+  assert.equal(data.at(-1).distanciaKm, undefined);
+  assert.ok(data.slice(0, -1).every((p) => typeof p.distanciaKm === 'number'));
 });
 
-test('bairro: CEP geocodificado longe da cidade é ignorado', async () => {
-  const geo = {
-    bairros: GEO_SALVADOR.bairros,
-    ceps: { ...GEO_SALVADOR.ceps, '40050002': { lat: -23.55, lon: -46.63 } }, // São Paulo
-  };
-  const { data } = await buscarPolos(
+test('bairro: nenhum polo localizado → lista sem ordenar, com aviso (sem distâncias inventadas)', async () => {
+  const { data, meta } = await buscarPolos(
     POLOS_SALVADOR,
     { cidade: 'salvador', uf: 'BA', bairro: 'Cajazeiras' },
-    geocoderFalso(geo)
+    geocoderFalso({ bairros: GEO_SALVADOR.bairros })
   );
-  const centro = data.find((p) => p.cidade === 'SALVADOR (CENTRO)');
-  assert.ok(centro.distanciaKm < 40, `distância inesperada: ${centro.distanciaKm}`);
+  assert.equal(data.length, 4);
+  assert.ok(data.every((p) => p.distanciaKm === undefined));
+  assert.equal(meta.ordenadoPor, undefined);
+  assert.equal(meta.bairroLocalizado, true);
+  assert.match(meta.aviso, /endereço dos polos/);
 });
 
 test('bairro não localizado: mesma resposta de antes, com aviso', async () => {
@@ -197,7 +196,7 @@ test('sem bairro: não consulta o geocoder', async () => {
   const { meta } = await buscarPolos(POLOS_SALVADOR, { cidade: 'salvador', uf: 'BA', bairro: '  ' }, geocoder);
   assert.equal(meta.ordenadoPor, undefined);
   assert.equal(geocoder.chamadas.bairro.length, 0);
-  assert.equal(geocoder.chamadas.cep.length, 0);
+  assert.equal(geocoder.chamadas.polo.length, 0);
 });
 
 test('bairro sem cidade é ignorado', async () => {

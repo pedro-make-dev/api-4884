@@ -126,7 +126,7 @@ GET https://SEU-SERVICO.onrender.com/polos?uf=DF&cidade=brasilia&bairro=ceilandi
 }
 ```
 
-A localização do bairro vem do OpenStreetMap (Nominatim) e a do polo vem do CEP dele (AwesomeAPI); as distâncias são em linha reta. Uma busca com bairro pode levar de 1 a 4 s a mais na primeira vez. As seguintes ficam em cache até o serviço reiniciar.
+A localização do bairro vem do OpenStreetMap (Nominatim), e a de cada polo vem do CEP dele. As distâncias são em linha reta. A primeira busca por um bairro pode levar de 1 a 4 s a mais. As seguintes ficam em cache até o serviço reiniciar. Se a API não conseguir localizar um polo, ele fica sem `distanciaKm`, no fim da lista.
 
 | Campo | Significado |
 |---|---|
