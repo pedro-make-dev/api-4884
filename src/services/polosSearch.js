@@ -1,5 +1,6 @@
 const { fuzzyMatch, normalize } = require('../utils/normalize');
 const { findMunicipio, haversineKm } = require('./geo');
+const geocoderPadrao = require('./geocoder');
 
 const LIMITE_CIDADES_PADRAO = 5;
 
@@ -27,9 +28,19 @@ function polosMaisProximos(polos, origem, limite) {
   });
 }
 
-// GET /polos: filtra por uf/cidade/cep/megaPolo. Se a cidade buscada não tiver
-// polo, devolve os polos das cidades mais próximas em km (sem restringir a UF).
-function buscarPolos(polos, { uf, cidade, cep, megaPolo, limite } = {}) {
+// Dentro da cidade as distâncias são curtas: uma casa decimal.
+function kmComUmaCasa(km) {
+  return Math.round(km * 10) / 10;
+}
+
+function limiteDeCidades(limite) {
+  const n = parseInt(limite, 10);
+  return n > 0 ? n : LIMITE_CIDADES_PADRAO;
+}
+
+// Filtra por uf/cidade/cep/megaPolo. Se a cidade buscada não tiver polo,
+// devolve os polos das cidades mais próximas em km (sem restringir a UF).
+function buscarPorCidade(polos, { uf, cidade, cep, megaPolo, limite } = {}) {
   let results = polos;
   if (uf) {
     const wanted = String(uf).toUpperCase();
@@ -69,12 +80,7 @@ function buscarPolos(polos, { uf, cidade, cep, megaPolo, limite } = {}) {
     };
   }
 
-  const n = parseInt(limite, 10);
-  const proximos = polosMaisProximos(
-    filtrarMegaPolo(polos, megaPolo),
-    busca.municipio,
-    n > 0 ? n : LIMITE_CIDADES_PADRAO
-  );
+  const proximos = polosMaisProximos(filtrarMegaPolo(polos, megaPolo), busca.municipio, limiteDeCidades(limite));
   return {
     data: proximos,
     meta: {
@@ -84,6 +90,74 @@ function buscarPolos(polos, { uf, cidade, cep, megaPolo, limite } = {}) {
       cidadeBuscada: { nome: busca.municipio.nome, uf: busca.municipio.uf },
     },
   };
+}
+
+// Coordenada mais fina do polo: CEP do endereço; sem ela, o centro do município.
+async function coordenadasDoPolo(polo, geocoder) {
+  if (!polo.geo) return null;
+  const doCep = await geocoder.localizarCep(polo.cep);
+  if (doCep && haversineKm(polo.geo, doCep) <= geocoder.RAIO_MAX_KM) return doCep;
+  return polo.geo;
+}
+
+// Com bairro: os polos da cidade vêm ordenados pela distância até o bairro; sem
+// polo na cidade, o fallback mede a partir do bairro. Se o bairro não for
+// localizado, a resposta é a mesma da busca sem bairro, com um aviso.
+async function refinarPorBairro(resultado, polos, query, geocoder) {
+  const { bairro, cidade, uf, megaPolo, limite } = query;
+  if (resultado.meta.aviso) return resultado;
+
+  const busca = findMunicipio(cidade, uf);
+  if (busca.status !== 'ok') return resultado;
+  const municipio = busca.municipio;
+  const bairroBuscado = { nome: String(bairro).trim(), cidade: municipio.nome, uf: municipio.uf };
+
+  const origem = await geocoder.localizarBairro(bairroBuscado.nome, municipio);
+  if (!origem) {
+    return {
+      data: resultado.data,
+      meta: {
+        ...resultado.meta,
+        bairroBuscado,
+        bairroLocalizado: false,
+        aviso: `Bairro "${bairroBuscado.nome}" não localizado em ${municipio.nome}/${municipio.uf}. Polos listados sem ordenar por distância do bairro.`,
+      },
+    };
+  }
+
+  if (resultado.meta.fallback) {
+    const proximos = polosMaisProximos(filtrarMegaPolo(polos, megaPolo), origem, limiteDeCidades(limite));
+    return {
+      data: proximos,
+      meta: { ...resultado.meta, total: proximos.length, bairroBuscado, bairroLocalizado: true },
+    };
+  }
+
+  const comDistancia = await Promise.all(
+    resultado.data.map(async (p) => {
+      const coords = await coordenadasDoPolo(p, geocoder);
+      return coords ? { ...p, distanciaKm: kmComUmaCasa(haversineKm(origem, coords)) } : p;
+    })
+  );
+  // Polos sem coordenada (geo: null) vão para o fim.
+  comDistancia.sort((a, b) => (a.distanciaKm ?? Infinity) - (b.distanciaKm ?? Infinity));
+  return {
+    data: comDistancia,
+    meta: {
+      ...resultado.meta,
+      ordenadoPor: 'distancia_do_bairro',
+      bairroBuscado,
+      bairroLocalizado: true,
+    },
+  };
+}
+
+// GET /polos. `bairro` é opcional e só vale junto com `cidade`.
+async function buscarPolos(polos, query = {}, geocoder = geocoderPadrao) {
+  const resultado = buscarPorCidade(polos, query);
+  const bairro = String(query.bairro || '').trim();
+  if (!bairro || !query.cidade) return resultado;
+  return refinarPorBairro(resultado, polos, query, geocoder);
 }
 
 module.exports = { buscarPolos };

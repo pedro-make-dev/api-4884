@@ -28,22 +28,22 @@ test('georreferenciar: adiciona município e coordenadas, ou null se não reconh
   assert.equal(POLOS.at(-1).geo, null);
 });
 
-test('cidade com polo: retorna os polos da cidade sem fallback', () => {
-  const { data, meta } = buscarPolos(POLOS, { cidade: 'arapiraca', uf: 'AL' });
+test('cidade com polo: retorna os polos da cidade sem fallback', async () => {
+  const { data, meta } = await buscarPolos(POLOS, { cidade: 'arapiraca', uf: 'AL' });
   assert.equal(data.length, 2);
   assert.equal(meta.fallback, false);
   assert.equal(meta.total, 2);
   assert.ok(data.every((p) => p.distanciaKm === undefined));
 });
 
-test('sem filtro de cidade não há fallback, mesmo sem resultados', () => {
-  const { data, meta } = buscarPolos(POLOS, { uf: 'RS' });
+test('sem filtro de cidade não há fallback, mesmo sem resultados', async () => {
+  const { data, meta } = await buscarPolos(POLOS, { uf: 'RS' });
   assert.equal(data.length, 0);
   assert.equal(meta.fallback, false);
 });
 
-test('cidade sem polo: retorna polos das cidades mais próximas ordenados por km', () => {
-  const { data, meta } = buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL' });
+test('cidade sem polo: retorna polos das cidades mais próximas ordenados por km', async () => {
+  const { data, meta } = await buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL' });
   assert.equal(meta.fallback, true);
   assert.equal(meta.motivo, 'sem_polo_na_cidade');
   assert.deepEqual(meta.cidadeBuscada, { nome: 'Palmeira dos Índios', uf: 'AL' });
@@ -53,50 +53,177 @@ test('cidade sem polo: retorna polos das cidades mais próximas ordenados por km
   assert.equal(data[0].geo.municipio, 'Arapiraca');
 });
 
-test('fallback atravessa a divisa do estado quando a outra UF é mais perto', () => {
-  const { data } = buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL' });
+test('fallback atravessa a divisa do estado quando a outra UF é mais perto', async () => {
+  const { data } = await buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL' });
   const cidades = data.map((p) => p.geo.municipio);
   assert.ok(cidades.indexOf('Garanhuns') < cidades.indexOf('Maceió'));
 });
 
-test('limite conta cidades, não polos', () => {
-  const { data, meta } = buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL', limite: '1' });
+test('limite conta cidades, não polos', async () => {
+  const { data, meta } = await buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL', limite: '1' });
   assert.equal(data.length, 2);
   assert.ok(data.every((p) => p.geo.municipio === 'Arapiraca'));
   assert.equal(meta.total, 2);
 });
 
-test('limite padrão é 5 cidades', () => {
-  const { data } = buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL' });
+test('limite padrão é 5 cidades', async () => {
+  const { data } = await buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL' });
   const cidades = new Set(data.map((p) => `${p.geo.municipio}/${p.geo.uf}`));
   assert.equal(cidades.size, 5);
   assert.ok(!cidades.has('Campo Grande/MS'), 'a cidade mais distante deveria ficar de fora');
 });
 
-test('fallback respeita o filtro megaPolo', () => {
-  const { data } = buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL', megaPolo: 'true' });
+test('fallback respeita o filtro megaPolo', async () => {
+  const { data } = await buscarPolos(POLOS, { cidade: 'palmeira dos indios', uf: 'AL', megaPolo: 'true' });
   assert.ok(data.length > 0);
   assert.ok(data.every((p) => p.megaPolo));
   assert.equal(data[0].geo.municipio, 'Maceió');
 });
 
-test('filtro uf também casa a UF corrigida pelo IBGE', () => {
-  const { data, meta } = buscarPolos(POLOS, { cidade: 'campo grande', uf: 'MS' });
+test('filtro uf também casa a UF corrigida pelo IBGE', async () => {
+  const { data, meta } = await buscarPolos(POLOS, { cidade: 'campo grande', uf: 'MS' });
   assert.equal(meta.fallback, false);
   assert.equal(data.length, 1);
 });
 
-test('cidade ambígua sem UF: não faz fallback e pede a UF', () => {
-  const { data, meta } = buscarPolos(POLOS, { cidade: 'santa luzia' });
+test('cidade ambígua sem UF: não faz fallback e pede a UF', async () => {
+  const { data, meta } = await buscarPolos(POLOS, { cidade: 'santa luzia' });
   assert.equal(data.length, 0);
   assert.equal(meta.fallback, false);
   assert.match(meta.aviso, /UF/);
   assert.ok(meta.candidatos.some((c) => c.uf === 'PB'));
 });
 
-test('cidade inexistente: não faz fallback e avisa', () => {
-  const { data, meta } = buscarPolos(POLOS, { cidade: 'cidade que nao existe', uf: 'SP' });
+test('cidade inexistente: não faz fallback e avisa', async () => {
+  const { data, meta } = await buscarPolos(POLOS, { cidade: 'cidade que nao existe', uf: 'SP' });
   assert.equal(data.length, 0);
   assert.equal(meta.fallback, false);
   assert.match(meta.aviso, /não encontrada/);
+});
+
+// ---- bairro ----
+// Geocoder falso: nada de rede nos testes.
+function geocoderFalso({ bairros = {}, ceps = {} } = {}) {
+  const chamadas = { bairro: [], cep: [] };
+  return {
+    chamadas,
+    RAIO_MAX_KM: 40,
+    async localizarBairro(nome, municipio) {
+      chamadas.bairro.push({ nome, municipio: municipio.nome });
+      return bairros[nome.toLowerCase()] || null;
+    },
+    async localizarCep(cep) {
+      chamadas.cep.push(cep);
+      return ceps[cep] || null;
+    },
+  };
+}
+
+const POLOS_SALVADOR = georreferenciar([
+  polo('BA', 'SALVADOR (CENTRO)', { cep: '40050002' }),
+  polo('BA', 'SALVADOR (PITUBA)', { cep: '41810001' }),
+  polo('BA', 'SALVADOR (CAJAZEIRAS)', { cep: '41342035' }),
+  polo('BA', 'SALVADOR (SEM CEP)', { cep: '' }),
+  polo('AL', 'ARAPIRACA (CENTRO)'),
+  polo('AL', 'MACEIO -CIDADE UNIVERSITARIA'),
+]);
+
+const GEO_SALVADOR = {
+  bairros: { cajazeiras: { lat: -12.9, lon: -38.408 }, itapua: { lat: -12.953, lon: -38.36 } },
+  ceps: {
+    '40050002': { lat: -12.984, lon: -38.513 }, // Nazaré
+    '41810001': { lat: -12.999, lon: -38.458 }, // Pituba
+    '41342035': { lat: -12.902, lon: -38.41 }, // Cajazeiras
+  },
+};
+
+test('bairro: polos da cidade ordenados pela distância até o bairro', async () => {
+  const geocoder = geocoderFalso(GEO_SALVADOR);
+  const { data, meta } = await buscarPolos(
+    POLOS_SALVADOR,
+    { cidade: 'salvador', uf: 'BA', bairro: 'Cajazeiras' },
+    geocoder
+  );
+  assert.equal(meta.fallback, false);
+  assert.equal(meta.ordenadoPor, 'distancia_do_bairro');
+  assert.equal(meta.bairroLocalizado, true);
+  assert.deepEqual(meta.bairroBuscado, { nome: 'Cajazeiras', cidade: 'Salvador', uf: 'BA' });
+  assert.equal(data.length, 4);
+  assert.equal(data[0].cidade, 'SALVADOR (CAJAZEIRAS)');
+  assert.ok(data[0].distanciaKm < 1);
+  const kms = data.map((p) => p.distanciaKm);
+  assert.deepEqual(kms, [...kms].sort((a, b) => a - b));
+});
+
+test('bairro: polo sem CEP localizado usa o centro do município', async () => {
+  const { data } = await buscarPolos(
+    POLOS_SALVADOR,
+    { cidade: 'salvador', uf: 'BA', bairro: 'Itapua' },
+    geocoderFalso(GEO_SALVADOR)
+  );
+  const semCep = data.find((p) => p.cidade === 'SALVADOR (SEM CEP)');
+  assert.equal(typeof semCep.distanciaKm, 'number');
+});
+
+test('bairro: CEP geocodificado longe da cidade é ignorado', async () => {
+  const geo = {
+    bairros: GEO_SALVADOR.bairros,
+    ceps: { ...GEO_SALVADOR.ceps, '40050002': { lat: -23.55, lon: -46.63 } }, // São Paulo
+  };
+  const { data } = await buscarPolos(
+    POLOS_SALVADOR,
+    { cidade: 'salvador', uf: 'BA', bairro: 'Cajazeiras' },
+    geocoderFalso(geo)
+  );
+  const centro = data.find((p) => p.cidade === 'SALVADOR (CENTRO)');
+  assert.ok(centro.distanciaKm < 40, `distância inesperada: ${centro.distanciaKm}`);
+});
+
+test('bairro não localizado: mesma resposta de antes, com aviso', async () => {
+  const { data, meta } = await buscarPolos(
+    POLOS_SALVADOR,
+    { cidade: 'salvador', uf: 'BA', bairro: 'Bairro Que Nao Existe' },
+    geocoderFalso(GEO_SALVADOR)
+  );
+  assert.equal(data.length, 4);
+  assert.equal(meta.fallback, false);
+  assert.equal(meta.bairroLocalizado, false);
+  assert.match(meta.aviso, /não localizado/);
+  assert.ok(data.every((p) => p.distanciaKm === undefined));
+});
+
+test('sem bairro: não consulta o geocoder', async () => {
+  const geocoder = geocoderFalso(GEO_SALVADOR);
+  const { meta } = await buscarPolos(POLOS_SALVADOR, { cidade: 'salvador', uf: 'BA', bairro: '  ' }, geocoder);
+  assert.equal(meta.ordenadoPor, undefined);
+  assert.equal(geocoder.chamadas.bairro.length, 0);
+  assert.equal(geocoder.chamadas.cep.length, 0);
+});
+
+test('bairro sem cidade é ignorado', async () => {
+  const geocoder = geocoderFalso(GEO_SALVADOR);
+  const { data } = await buscarPolos(POLOS_SALVADOR, { uf: 'BA', bairro: 'Cajazeiras' }, geocoder);
+  assert.equal(data.length, 4);
+  assert.equal(geocoder.chamadas.bairro.length, 0);
+});
+
+test('bairro em cidade sem polo: fallback mede a distância a partir do bairro', async () => {
+  // Bairro fictício de Palmeira dos Índios colado em Arapiraca.
+  const geocoder = geocoderFalso({ bairros: { divisa: { lat: -9.75, lon: -36.65 } } });
+  const { data, meta } = await buscarPolos(
+    POLOS,
+    { cidade: 'palmeira dos indios', uf: 'AL', bairro: 'Divisa' },
+    geocoder
+  );
+  assert.equal(meta.fallback, true);
+  assert.equal(meta.bairroLocalizado, true);
+  assert.equal(data[0].geo.municipio, 'Arapiraca');
+  assert.ok(data[0].distanciaKm <= 2);
+});
+
+test('bairro com cidade ambígua: mantém o aviso de UF e não geocodifica', async () => {
+  const geocoder = geocoderFalso();
+  const { meta } = await buscarPolos(POLOS, { cidade: 'santa luzia', bairro: 'Centro' }, geocoder);
+  assert.match(meta.aviso, /UF/);
+  assert.equal(geocoder.chamadas.bairro.length, 0);
 });

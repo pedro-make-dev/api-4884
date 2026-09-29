@@ -8,7 +8,7 @@ API em Node.js que consome 3 documentos Google (pré-requisitos de 2ª graduaç�
 - **Pré-condição:** os 3 documentos precisam estar compartilhados como **"qualquer pessoa com o link pode ver"**.
 - Os dados ficam em cache em memória (TTL padrão de 60 min). Expirado o TTL, a recarga acontece em background; se o Google falhar, o cache antigo é mantido.
 - `POST /refresh` força a recarga imediata (use após editar os documentos).
-- **Polos por proximidade:** cada polo é associado a um município do IBGE (arquivo `src/data/municipios.json`, com coordenadas, gerado a partir de [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros), licença MIT). Não é usada nenhuma API externa de mapas: a distância é calculada em linha reta. Polos cuja cidade não é reconhecida aparecem em `/health` → `cache.polosSemCoordenadas` e ficam fora do fallback. Corrija a grafia na planilha ou adicione um apelido em `src/services/geo.js`.
+- **Polos por proximidade:** cada polo é associado a um município do IBGE (arquivo `src/data/municipios.json`, com coordenadas, gerado a partir de [kelvins/municipios-brasileiros](https://github.com/kelvins/municipios-brasileiros), licença MIT). A distância entre cidades é calculada em linha reta, sem API externa. Quando a busca traz `bairro`, o bairro é localizado pelo OpenStreetMap ([Nominatim](https://nominatim.org/release-docs/latest/api/Search/), máx. 1 req/s) e cada polo pelo CEP ([AwesomeAPI](https://docs.awesomeapi.com.br/api-cep)). Os dois ficam em cache em memória. Se a consulta falhar, a resposta sai sem a ordenação por bairro. Polos cuja cidade não é reconhecida aparecem em `/health` → `cache.polosSemCoordenadas` e ficam fora do fallback. Corrija a grafia na planilha ou adicione um apelido em `src/services/geo.js`.
 
 ## Variáveis de ambiente
 
@@ -34,7 +34,7 @@ Todas as respostas seguem o formato `{ "ok": true|false, "data": ..., "meta": ..
 | Rota | Descrição | Exemplo |
 |---|---|---|
 | `GET /health` | Status + idade do cache (sem API key) | `/health` |
-| `GET /polos` | Filtros: `uf`, `cidade` (busca parcial sem acentos), `cep` (prefixo), `megaPolo` (`true`/`false`). Se a cidade não tiver polo, retorna os das cidades mais próximas em km (`meta.fallback: true`, `distanciaKm`, `limite` = nº de cidades, padrão 5) | `/polos?uf=AL&cidade=quebrangulo` |
+| `GET /polos` | Filtros: `uf`, `cidade` (busca parcial sem acentos), `cep` (prefixo), `megaPolo` (`true`/`false`). Se a cidade não tiver polo, retorna os das cidades mais próximas em km (`meta.fallback: true`, `distanciaKm`, `limite` = nº de cidades, padrão 5). Com `bairro` (opcional), ordena pela distância até o bairro | `/polos?uf=AL&cidade=quebrangulo` |
 | `GET /cursos` | Lista cursos distintos; filtro `modalidade` | `/cursos?modalidade=graduacao` |
 | `GET /cursos/grade` | Disciplinas em ordem + carga horária total. Obrigatório: `curso` (match fuzzy) | `/cursos/grade?curso=analise e desenvolvimento` |
 | `GET /prerequisitos` | Todos os cursos de 2ª graduação com formações aceitas; filtro `curso` | `/prerequisitos?curso=engenharia civil` |

@@ -36,6 +36,7 @@ Filtra os polos físicos. Todos os parâmetros são opcionais e combináveis.
 |---|---|---|
 | `uf` | string | Sigla do estado, 2 letras (ex: `AL`, `SP`). **Envie sempre junto com `cidade`**: evita confundir cidades com o mesmo nome em estados diferentes. |
 | `cidade` | string | Nome da cidade (parcial, sem acento). Ex: `arapiraca`. |
+| `bairro` | string | (Opcional, só vale junto com `cidade`) Bairro do lead. Quando enviado, os polos vêm ordenados do mais próximo ao mais distante do bairro, com `distanciaKm`. Ver abaixo. |
 | `cep` | string | Filtra por prefixo do CEP (ex: `573` pega todos que começam com 573). |
 | `megaPolo` | boolean | `true` retorna só os polos principais; `false` os demais. |
 | `limite` | número | Só vale no fallback: quantas cidades próximas retornar. Padrão `5`. |
@@ -94,8 +95,47 @@ GET https://SEU-SERVICO.onrender.com/polos?uf=AL&cidade=quebrangulo
 | `meta.cidadeBuscada` | Nome oficial e UF da cidade que a API reconheceu. |
 | `meta.aviso` | Quando não dá para calcular o fallback: cidade não encontrada, ou nome repetido em vários estados sem `uf` (nesse caso vem também `meta.candidatos` com as opções). |
 
+### Com bairro: polos mais próximos do bairro
+
+Se `bairro` for enviado junto com `cidade`:
+
+- **Há polo na cidade:** a lista traz os polos da cidade ordenados pela distância até o bairro (`data[].distanciaKm`, com uma casa decimal) e `meta.ordenadoPor: "distancia_do_bairro"`.
+- **Não há polo na cidade:** o fallback funciona como descrito acima, mas a distância é medida a partir do bairro.
+- **Bairro não localizado:** a resposta é a mesma de uma busca sem bairro, com `meta.bairroLocalizado: false` e um `meta.aviso`.
+
+Sem `bairro`, nada muda.
+
+```
+GET https://SEU-SERVICO.onrender.com/polos?uf=DF&cidade=brasilia&bairro=ceilandia
+```
+
+```json
+{
+  "ok": true,
+  "data": [
+    { "cidade": "BRASÍLIA (CEILÂNDIA)", "uf": "DF", "endereco": "QNN 18, conj. H lote 17 - CEILÂNDIA SUL", "distanciaKm": 0.6 },
+    { "cidade": "BRASÍLIA (TAGUATINGA)", "uf": "DF", "endereco": "...", "distanciaKm": 5.4 }
+  ],
+  "meta": {
+    "total": 8,
+    "fallback": false,
+    "ordenadoPor": "distancia_do_bairro",
+    "bairroBuscado": { "nome": "ceilandia", "cidade": "Brasília", "uf": "DF" },
+    "bairroLocalizado": true
+  }
+}
+```
+
+A localização do bairro vem do OpenStreetMap (Nominatim) e a do polo vem do CEP dele (AwesomeAPI); as distâncias são em linha reta. Uma busca com bairro pode levar de 1 a 4 s a mais na primeira vez. As seguintes ficam em cache até o serviço reiniciar.
+
+| Campo | Significado |
+|---|---|
+| `meta.bairroBuscado` | Bairro recebido e a cidade/UF em que ele foi procurado. |
+| `meta.bairroLocalizado` | `true`: a lista está ordenada pela distância até o bairro. `false`: o bairro não foi encontrado, e a lista não foi reordenada. |
+| `meta.ordenadoPor` | `"distancia_do_bairro"` quando os polos da cidade foram ordenados pelo bairro. |
+
 **Sugestão para a descrição da tool no AI Agent:**
-> Sempre envie `cidade` e `uf`. Se `meta.fallback` for `true`, diga ao lead que ainda não há polo na cidade dele e ofereça os polos listados como os mais próximos, citando a distância aproximada (`distanciaKm`). Se vier `meta.aviso`, pergunte ao lead a informação que falta.
+> Sempre envie `cidade` e `uf`. Se o lead tiver dito o bairro, envie também `bairro`, e a lista virá do polo mais próximo ao mais distante. Ofereça primeiro os primeiros da lista e cite a distância aproximada (`distanciaKm`). Se `meta.fallback` for `true`, diga ao lead que ainda não há polo na cidade dele e ofereça os polos listados como os mais próximos. Se vier `meta.aviso`, pergunte ao lead a informação que falta.
 
 ---
 
